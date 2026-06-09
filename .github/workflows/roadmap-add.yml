@@ -1,0 +1,47 @@
+name: roadmap-add
+
+# Aggregate every OPEN issue from the roadmap repos into project #5 (akira-toriyama/roadmap).
+# The built-in "Auto-add to project" workflow is capped at 1 repo (Free) / 5 (Pro-Team), so it
+# cannot cover all repos. This sweeps them all for free.
+# Triggers: every 15 min (GitHub may delay scheduled runs) and on-demand via
+#   gh workflow run roadmap-add.yml -R akira-toriyama/akira-toriyama
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: roadmap-add
+  cancel-in-progress: false
+
+jobs:
+  add:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.ROADMAP_PROJECT_PAT }}
+      OWNER: akira-toriyama
+      PROJECT: '5'
+      REPOS: 'facet chord halo perch wand canon dotfiles glossary-site excalidraw-claude-code'
+    steps:
+      - name: Add open issues not yet on the board
+        run: |
+          set -euo pipefail
+
+          # URLs already on the board (issues + PRs; drafts have no url -> dropped).
+          existing="$(gh project item-list "$PROJECT" --owner "$OWNER" --format json --limit 2000 \
+            | jq -r '.items[].content.url // empty' | sort -u)"
+
+          added=0
+          for repo in $REPOS; do
+            # gh issue list returns issues only (PRs excluded) == is:issue.
+            urls="$(gh issue list -R "$OWNER/$repo" --state open --limit 1000 --json url -q '.[].url')"
+            for url in $urls; do
+              if ! grep -qxF "$url" <<<"$existing"; then
+                echo "add: $url"
+                gh project item-add "$PROJECT" --owner "$OWNER" --url "$url" >/dev/null
+                added=$((added+1))
+              fi
+            done
+          done
+          echo "done: added $added new issue(s)"
